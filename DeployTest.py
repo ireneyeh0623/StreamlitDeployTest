@@ -27,7 +27,7 @@ LIGHT_TOKENS = {
     "accent": "#b68235",
     "grid_line": "rgba(32,31,29,0.08)",
     "shadow": "0 3px 10px rgba(45,43,43,0.14)",
-    "candle": {"up": "#FF4136", "down": "#2ECC40"},
+    "candle": {"up": "#8b1e1e", "down": "#1f5c3d"},
 }
 DARK_TOKENS = {
     "bg": "#17140f",
@@ -38,7 +38,7 @@ DARK_TOKENS = {
     "accent": "#c99a4e",
     "grid_line": "rgba(243,237,226,0.12)",
     "shadow": "0 12px 32px rgba(0,0,0,0.5)",
-    "candle": {"up": "#FF4136", "down": "#2ECC40"},
+    "candle": {"up": "#d0342c", "down": "#2f9d68"},
 }
 
 is_dark = st.session_state.is_dark
@@ -106,11 +106,23 @@ st.markdown(f"""
         border-color: {tok['divider']} !important;
         background-color: transparent !important;
         color: {tok['text']} !important;
+        opacity: 1 !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stNumberInputStepUp"] svg,
+    [data-testid="stSidebar"] [data-testid="stNumberInputStepDown"] svg {{
+        fill: {tok['text']} !important;
+        stroke: {tok['text']} !important;
+        opacity: 1 !important;
     }}
     [data-testid="stSidebar"] [data-testid="stNumberInputStepUp"]:hover,
     [data-testid="stSidebar"] [data-testid="stNumberInputStepDown"]:hover {{
         border-color: {tok['accent']} !important;
         color: {tok['accent']} !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stNumberInputStepUp"]:hover svg,
+    [data-testid="stSidebar"] [data-testid="stNumberInputStepDown"]:hover svg {{
+        fill: {tok['accent']} !important;
+        stroke: {tok['accent']} !important;
     }}
 
     /* 瀏覽器自動填入(autofill)會強制套用自己的底色，一般CSS蓋不掉，需用此專門技巧解除 */
@@ -415,23 +427,21 @@ else:
 
             is_long = not pd.isna(df['SAR_Long'].iloc[-1])
             trend_text = "看漲 (多頭)" if is_long else "看跌 (空頭)"
-            trend_color = tok['candle']['up'] if is_long else tok['candle']['down']
             sar_val = df['SAR_Long'].iloc[-1] if is_long else df['SAR_Short'].iloc[-1]
             sar_label = "SAR 支撐位置" if is_long else "SAR 壓力位置"
 
-            def _stat_card(label, value, value_color=None):
-                color = value_color or tok['text']
+            def _stat_card(label, value):
                 return f"""
                 <div style="border:1px solid {tok['divider']};border-radius:4px;padding:20px 22px;">
                   <div style="font-size:12px;color:{tok['text_muted']};margin-bottom:8px;">{label}</div>
-                  <div style="font-family:'Cormorant Garamond',serif;font-size:28px;color:{color};font-variant-numeric:tabular-nums;">{value}</div>
+                  <div style="font-family:'Cormorant Garamond',serif;font-size:28px;color:{tok['text']};font-variant-numeric:tabular-nums;">{value}</div>
                 </div>
                 """
 
             col1, col2, col3 = st.columns(3)
-            col1.markdown(_stat_card("目前趨勢", trend_text, trend_color), unsafe_allow_html=True)
+            col1.markdown(_stat_card("目前趨勢", trend_text), unsafe_allow_html=True)
             col2.markdown(_stat_card("收盤價", f"{last_price:.2f}"), unsafe_allow_html=True)
-            col3.markdown(_stat_card(sar_label, f"{sar_val:.2f}", trend_color), unsafe_allow_html=True)
+            col3.markdown(_stat_card(sar_label, f"{sar_val:.2f}"), unsafe_allow_html=True)
 
     else:
         st.error(f"找不到股票資料（已嘗試：{', '.join(candidates)}），請檢查代號或日期。")
