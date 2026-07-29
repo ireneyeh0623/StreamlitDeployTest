@@ -9,13 +9,13 @@ from datetime import datetime
 # 1. 系統環境配置
 # ==============================================================================
 
-st.set_page_config(page_title="Coppock 估波指標系統 (月線版)", layout="wide")
+st.set_page_config(page_title="改良版 SAR 趨勢追蹤系統 (K線版)", layout="wide")
 
 if "is_dark" not in st.session_state:
     st.session_state.is_dark = False
 
 # ==============================================================================
-# 2. 視覺設計 Tokens（依 Design Handoff「Classical」設計系統規格）
+# 2. 視覺設計 Tokens（與 LohasFiveLineChart_1.py 共用同一套 Design Handoff 規格）
 # ==============================================================================
 
 LIGHT_TOKENS = {
@@ -27,8 +27,7 @@ LIGHT_TOKENS = {
     "accent": "#b68235",
     "grid_line": "rgba(32,31,29,0.08)",
     "shadow": "0 3px 10px rgba(45,43,43,0.14)",
-    "line": "#b68235",
-    "zero_line": "rgba(32,31,29,0.45)",
+    "candle": {"up": "#FF4136", "down": "#2ECC40"},
 }
 DARK_TOKENS = {
     "bg": "#17140f",
@@ -39,8 +38,7 @@ DARK_TOKENS = {
     "accent": "#c99a4e",
     "grid_line": "rgba(243,237,226,0.12)",
     "shadow": "0 12px 32px rgba(0,0,0,0.5)",
-    "line": "#c99a4e",
-    "zero_line": "rgba(243,237,226,0.45)",
+    "candle": {"up": "#FF4136", "down": "#2ECC40"},
 }
 
 is_dark = st.session_state.is_dark
@@ -81,6 +79,10 @@ st.markdown(f"""
         color: {tok['text_muted']} !important;
         font-family: 'Lora', serif !important;
     }}
+    [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span, [data-testid="stSidebar"] label {{
+        color: {tok['text']};
+    }}
 
     /* 輸入框：邊框只畫在最外層容器，內層元素一律去邊框/去底色，避免雙層邊框與底色不一致 */
     [data-testid="stSidebar"] div[data-baseweb="input"] {{
@@ -96,6 +98,19 @@ st.markdown(f"""
     }}
     [data-testid="stSidebar"] div[data-baseweb="input"] input {{
         color: {tok['text']} !important;
+    }}
+
+    /* 數字輸入框(+/-按鈕)：步進按鈕改為描邊風格，與整體設計語彙一致 */
+    [data-testid="stSidebar"] [data-testid="stNumberInputStepUp"],
+    [data-testid="stSidebar"] [data-testid="stNumberInputStepDown"] {{
+        border-color: {tok['divider']} !important;
+        background-color: transparent !important;
+        color: {tok['text']} !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stNumberInputStepUp"]:hover,
+    [data-testid="stSidebar"] [data-testid="stNumberInputStepDown"]:hover {{
+        border-color: {tok['accent']} !important;
+        color: {tok['accent']} !important;
     }}
 
     /* 瀏覽器自動填入(autofill)會強制套用自己的底色，一般CSS蓋不掉，需用此專門技巧解除 */
@@ -146,7 +161,7 @@ st.markdown(f"""
     """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 4. 側邊欄：查詢設定
+# 4. 側邊欄：使用者參數輸入區
 # ==============================================================================
 
 st.sidebar.markdown(
@@ -155,9 +170,35 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-# 股票與結束日期輸入(起始日期由結束日期自動往前推20年計算，不開放使用者輸入)
+# 股票與日期輸入
 stock_id = st.sidebar.text_input("股票代號(如2330或AAPL)", "2330")
+start_date = st.sidebar.date_input("起始日期(YYYY/MM/DD)", datetime(2025, 10, 1))
 end_date = st.sidebar.date_input("結束日期(YYYY/MM/DD)", datetime.now())
+
+st.sidebar.markdown(
+    f"<hr style='border:none;border-top:1px solid {tok['divider']};margin:4px 0;'>",
+    unsafe_allow_html=True,
+)
+
+# SAR 核心參數：AF (加速因子) —— 以 +/- 按鈕(number_input)取代滑桿
+af_start = st.sidebar.number_input(
+    "AF 起始值", min_value=0.01, max_value=0.10, value=0.02, step=0.01, format="%.2f"
+)
+af_max = st.sidebar.number_input(
+    "AF 極限值", min_value=0.10, max_value=0.50, value=0.20, step=0.01, format="%.2f"
+)
+
+st.sidebar.markdown(
+    f"<hr style='border:none;border-top:1px solid {tok['divider']};margin:4px 0;'>",
+    unsafe_allow_html=True,
+)
+
+# 收盤價容許度 (避免因盤中影線誤觸導致頻繁轉向)(收盤價確認機制參數) —— 以 +/- 按鈕(number_input)取代滑桿
+tolerance_pct = st.sidebar.number_input(
+    "誤差容忍值%(預設1%)", min_value=0.0, max_value=5.0, value=1.0, step=0.5, format="%.1f"
+)
+up_tol = 1 - tolerance_pct / 100    # e.g. 1% → 0.99
+down_tol = 1 + tolerance_pct / 100  # e.g. 1% → 1.01
 
 st.sidebar.markdown(
     f"<hr style='border:none;border-top:1px solid {tok['divider']};margin:4px 0;'>",
@@ -183,9 +224,9 @@ if theme_clicked:
 st.markdown(f"""
     <div style="display:flex;align-items:center;gap:12px;">
       <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="{tok['accent']}" stroke-width="1.6">
-        <path d="M3 12h3l3 7 4-14 3 7h5"/>
+        <path d="M3 17l5-6 4 3 6-9"/><path d="M14 5h5v5"/>
       </svg>
-      <h1 style="margin:0;font-size:36px;">Coppock 估波指標系統 (月線版)</h1>
+      <h1 style="margin:0;font-size:36px;">改良版 SAR 趨勢追蹤系統 (K線版)</h1>
     </div>
     """, unsafe_allow_html=True)
 
@@ -196,102 +237,158 @@ if not analyze_btn:
         unsafe_allow_html=True,
     )
 else:
-    # 資料計算期間：結束日期往前算20年
-    # 若實際資料長度不足20年(例如上市未滿20年)，yfinance 會自動從最早可得資料起算，不需額外處理
-    start_date = (pd.Timestamp(end_date) - pd.DateOffset(years=20)).date()
-
-    # 依序嘗試：原始代號 → .TW → .TWO
+    # 依序嘗試：原始輸入 → 加 .TW → 加 .TWO
     candidates = [stock_id, f"{stock_id}.TW", f"{stock_id}.TWO"]
-    search_id = None
     data = pd.DataFrame()
+    search_id = stock_id
     for candidate in candidates:
-        temp = yf.download(candidate, start=start_date, end=end_date, auto_adjust=True, interval="1mo")
-        if not temp.empty:
+        data = yf.download(candidate, start=start_date, end=end_date, auto_adjust=True, progress=False)
+        if not data.empty:
             search_id = candidate
-            data = temp
             break
 
-    if search_id:
-        # 顯示股票代碼(左上角)
-        st.markdown(
-            f"<div style='margin-top:4px;font-family:\"Cormorant Garamond\",serif;"
-            f"font-size:19px;color:{tok['text_muted']};'>{search_id}</div>",
-            unsafe_allow_html=True,
-        )
+    # 顯示股票代碼
+    st.markdown(
+        f"<div style='margin-top:4px;font-family:\"Cormorant Garamond\",serif;"
+        f"font-size:19px;color:{tok['text_muted']};'>{search_id}</div>",
+        unsafe_allow_html=True,
+    )
 
     if not data.empty:
-        df = data.copy()
+        # [修正1] yfinance 0.2.x+ 新版本回傳 MultiIndex 欄位，須在 reset_index() 之前先扁平化
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
 
-        # ★ 修正：必須先展平 MultiIndex 欄位，再 reset_index()
-        #   yfinance 新版回傳的欄位結構為 MultiIndex，例如 ('Close', '2330.TW')
-        #   若順序顛倒，reset_index() 後 'Date' 欄位無法正常存取
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+        # [修正2] yfinance 不同版本日期索引名稱不一致：
+        #   舊版 → 'Date'，新版 → 'Datetime'
+        #   強制統一命名為 'Date'，確保 reset_index() 後欄位名稱固定
+        data.index.name = 'Date'
 
-        df = df.reset_index()
+        df = data.copy().reset_index()
 
-        # 相容不同版本 yfinance：月線索引名稱可能為 'Date' 或 'Datetime'
-        if 'Datetime' in df.columns:
-            df = df.rename(columns={'Datetime': 'Date'})
-        elif 'index' in df.columns:
-            df = df.rename(columns={'index': 'Date'})
+        # 格式化日期(用於 X 軸顯示)：移除 X 軸非交易日空隙的關鍵，先將日期轉為字串
+        # 這樣會顯示成：Nov 02 2022
+        df['Date_Str'] = df['Date'].dt.strftime('%b %d %Y')
 
-        # 格式化日期(用於 X 軸顯示)：移除 X 軸非交易月空隙的關鍵，先將日期轉為字串
-        # 這樣會顯示成：Nov 2022
-        df['Date_Str'] = df['Date'].dt.strftime('%b %Y')
-
-        # 展平收盤價確保計算穩定
+        # 展平數據確保計算穩定
         df['Close_1D'] = df['Close'].values.flatten()
+        df['High_1D'] = df['High'].values.flatten()
+        df['Low_1D'] = df['Low'].values.flatten()
+        df['Open_1D'] = df['Open'].values.flatten()
 
-        # --- Coppock 估波指標計算 ---
-        # Coppock.1 = WMA(10) of (ROC(14) + ROC(11))
-        # ROC(n) = (Close - Close[n個月前]) / Close[n個月前] * 100
-        # WMA(10)：以 1~10 為權重的加權移動平均，最近月權重最大(10)，10個月前權重最小(1)
-        close = df['Close_1D']
-        roc14 = (close - close.shift(14)) / close.shift(14) * 100
-        roc11 = (close - close.shift(11)) / close.shift(11) * 100
-        roc_sum = roc14 + roc11
+        # --- 請刪除這一段 ---
+        # psar = df.ta.psar(high='High_1D', low='Low_1D', close='Close_1D',
+        #                   af0=af_start, af=af_start, max_af=af_max)
 
-        weights = np.arange(1, 11)
-        df['Coppock'] = roc_sum.rolling(10).apply(lambda x: np.dot(x, weights) / weights.sum(), raw=True)
+        # if psar is not None:
+        #     df['SAR_Long'] = psar.iloc[:, 0]
+        #     df['SAR_Short'] = psar.iloc[:, 1]
+        # else:
+        #     df['SAR_Long'] = np.nan
+        #     df['SAR_Short'] = np.nan
+
+        # --- [取代為此段] 改良版 SAR 核心計算法 ---
+        df['SAR'] = np.nan
+        df['Trend'] = 0  # 趨勢標記：1 為多頭, -1 為空頭
+
+        # 初始趨勢判斷：若第一天收紅則初步看多
+        initial_trend = 1 if df['Close_1D'].iloc[0] > df['Open_1D'].iloc[0] else -1
+        curr_trend = initial_trend
+        curr_af = af_start
+        # 初始 SAR 位在低點(多)或高點(空)
+        curr_sar = df['Low_1D'].iloc[0] if initial_trend == 1 else df['High_1D'].iloc[0]
+        # EP (極值點)：多頭為最高價，空頭為最低價
+        ep = df['High_1D'].iloc[0] if initial_trend == 1 else df['Low_1D'].iloc[0]
+
+        for i in range(len(df)):
+            c_high, c_low, c_close = df['High_1D'].iloc[i], df['Low_1D'].iloc[i], df['Close_1D'].iloc[i]
+            df.iat[i, df.columns.get_loc('SAR')] = curr_sar
+            df.iat[i, df.columns.get_loc('Trend')] = curr_trend
+
+            next_trend, next_af = curr_trend, curr_af
+
+            # --- 多頭趨勢判斷 ---
+            if curr_trend == 1: # 上升趨勢(創新高)
+                if c_high > ep:
+                    ep = c_high
+                    next_af = min(curr_af + af_start, af_max) # 增加加速因子
+
+                if c_low <= curr_sar: # 觸碰點位(盤中跌破 SAR)
+                    # [改良邏輯] 若收盤價仍高於 SAR*容許比例，則不轉向，僅重置 AF 並調整 SAR 位置
+                    if c_close > curr_sar * up_tol:
+                        next_af, ep = af_start, c_high
+                        next_sar = c_low # 重置為當日低點
+                    else: # 未能守住，標準反轉(真正收破：轉向為空頭)
+                        next_trend, next_af, next_sar, ep = -1, af_start, ep, c_low
+                else: # 正常上升(沒觸碰)
+                    next_sar = curr_sar + curr_af * (ep - curr_sar)
+                    # 確保 SAR 不會高於前兩日低點
+                    if i > 0: next_sar = min(next_sar, c_low, df['Low_1D'].iloc[i-1])
+
+            # --- 空頭趨勢判斷 ---
+            else: # 下降趨勢(創新低)
+                if c_low < ep:
+                    ep = c_low
+                    next_af = min(curr_af + af_start, af_max)
+
+                if c_high >= curr_sar: # 觸碰點位(盤中突破 SAR)
+                    # [改良邏輯] 若收盤價仍低於 SAR*容許比例，不轉向
+                    if c_close < curr_sar * down_tol:
+                        next_af, ep = af_start, c_low
+                        next_sar = c_high # 重置為當日高點
+                    else: # 未能守住，標準反轉(真正收過：轉向為多頭)
+                        next_trend, next_af, next_sar, ep = 1, af_start, ep, c_high
+                else: # 正常下降(沒觸碰)
+                    next_sar = curr_sar + curr_af * (ep - curr_sar)
+                    # 確保 SAR 不會低於前兩日高點
+                    if i > 0: next_sar = max(next_sar, c_high, df['High_1D'].iloc[i-1])
+
+            curr_sar, curr_trend, curr_af = next_sar, next_trend, next_af
+
+        # 將 SAR 分拆為多空兩欄，方便 Plotly 著色（紅點與綠點）
+        df['SAR_Long'] = df.apply(lambda x: x['SAR'] if x['Trend'] == 1 else np.nan, axis=1)
+        df['SAR_Short'] = df.apply(lambda x: x['SAR'] if x['Trend'] == -1 else np.nan, axis=1)
+
 
         # ==============================================================================
-        # 6. 視覺化繪圖 (Plotly 互動式圖表)
+        # 6. 繪圖與互動優化
         # ==============================================================================
         fig = go.Figure()
 
-        # 使用 Date_Str (字串日期) 當 X 軸，避開非交易月空隙
-        fig.add_trace(go.Scatter(
-            x=df['Date_Str'], y=df['Coppock'], name='Coppock',
-            mode='lines', line=dict(color=tok['line'], width=2)
+        # 使用 Date_Str (字串日期) 當 X 軸，避開假日空隙
+        fig.add_trace(go.Candlestick(
+            x=df['Date_Str'], open=df['Open_1D'], high=df['High_1D'], low=df['Low_1D'], close=df['Close_1D'],
+            name='K線', increasing_line_color=tok['candle']['up'], decreasing_line_color=tok['candle']['down']
         ))
 
-        # 零軸參考線：Coppock 慣例以零軸判斷多空轉折
-        # 以灰色虛線加粗呈現，與 Y 軸其他水平格線做出區隔
-        fig.add_hline(y=0, line_dash="dash", line_color=tok['zero_line'], line_width=2.5)
+        # 多頭支撐點 (紅色)
+        fig.add_trace(go.Scatter(
+            x=df['Date_Str'], y=df['SAR_Long'], name='多頭支撐', mode='markers',
+            marker=dict(size=4, color=tok['candle']['up'], symbol='circle')
+        ))
 
+        # 空頭壓力點 (綠色)
+        fig.add_trace(go.Scatter(
+            x=df['Date_Str'], y=df['SAR_Short'], name='空頭壓力', mode='markers',
+            marker=dict(size=4, color=tok['candle']['down'], symbol='circle')
+        ))
+
+        # 新增 rangebreaks 或將 xaxis 類型改為 category 以消除缺口
         fig.update_layout(
-            title=dict(text="Coppock", font=dict(family="Cormorant Garamond, serif", color=tok['text'])),
             height=700,
             template=chart_template,
+            xaxis_rangeslider_visible=False, # 隱藏滑動條讓圖表乾淨
             hovermode='x unified',
             font=dict(color=tok['text'], family='Lora, serif'),
-            # 關鍵：將 xaxis 類型設為 category，配合 Date_Str 使用以忽略非交易月
+            # 關鍵修正：將 xaxis 類型設為 category，配合 Date_Str 使用以忽略非交易日
             xaxis=dict(
-                title="月",
                 type='category',
                 color=tok['text'],
                 tickfont=dict(color=tok['text']),
                 gridcolor=tok['grid_line'],
                 nticks=8  # 限制顯示的座標標籤數量，避免字體重疊
             ),
-            yaxis=dict(
-                title="%",
-                color=tok['text'],
-                tickfont=dict(color=tok['text']),
-                gridcolor=tok['grid_line'],
-                zeroline=False  # 停用預設黑色實線加粗的零軸，改由上方自訂灰色虛線呈現
-            ),
+            yaxis=dict(color=tok['text'], tickfont=dict(color=tok['text']), gridcolor=tok['grid_line']),
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
@@ -310,47 +407,39 @@ else:
         # ==============================================================================
         # 7. 數據摘要指標
         # ==============================================================================
-        st.markdown("<h4 style='margin:28px 0 16px;'>數據摘要</h4>", unsafe_allow_html=True)
-        valid_df = df.dropna(subset=['Coppock'])
+        st.markdown("<h4 style='margin:28px 0 16px;'>最新狀態</h4>", unsafe_allow_html=True)
+        valid_df = df.dropna(subset=['Close_1D'])
 
         if not valid_df.empty:
-            last_close = valid_df['Close_1D'].iloc[-1]
-            last_coppock = valid_df['Coppock'].iloc[-1]
-            is_bullish = last_coppock > 0
-            zone_text = "多頭區 (>0)" if is_bullish else "空頭區 (<0)"
+            last_price = valid_df['Close_1D'].iloc[-1]
 
-            def _stat_card(label, value):
+            is_long = not pd.isna(df['SAR_Long'].iloc[-1])
+            trend_text = "看漲 (多頭)" if is_long else "看跌 (空頭)"
+            trend_color = tok['candle']['up'] if is_long else tok['candle']['down']
+            sar_val = df['SAR_Long'].iloc[-1] if is_long else df['SAR_Short'].iloc[-1]
+            sar_label = "SAR 支撐位置" if is_long else "SAR 壓力位置"
+
+            def _stat_card(label, value, value_color=None):
+                color = value_color or tok['text']
                 return f"""
                 <div style="border:1px solid {tok['divider']};border-radius:4px;padding:20px 22px;">
                   <div style="font-size:12px;color:{tok['text_muted']};margin-bottom:8px;">{label}</div>
-                  <div style="font-family:'Cormorant Garamond',serif;font-size:28px;font-variant-numeric:tabular-nums;">{value}</div>
+                  <div style="font-family:'Cormorant Garamond',serif;font-size:28px;color:{color};font-variant-numeric:tabular-nums;">{value}</div>
                 </div>
                 """
 
             col1, col2, col3 = st.columns(3)
-            col1.markdown(_stat_card("最新收盤價", f"{last_close:.2f}"), unsafe_allow_html=True)
-            col2.markdown(_stat_card("最新 Coppock 數值", f"{last_coppock:.2f}"), unsafe_allow_html=True)
-            col3.markdown(_stat_card("目前狀態", zone_text), unsafe_allow_html=True)
-
-            if is_bullish:
-                icon_path = '<path d="M3 17l5-6 4 3 6-9"/><path d="M14 5h5v5"/>'
-            else:
-                icon_path = '<path d="M3 7l5 6 4-3 6 9"/><path d="M14 19h5v-5"/>'
-
-            st.markdown(f"""
-                <div style="display:flex;align-items:center;gap:12px;margin-top:20px;
-                            border:1px solid color-mix(in srgb, {tok['accent']} 40%, transparent);
-                            background:color-mix(in srgb, {tok['accent']} 10%, transparent);
-                            border-radius:4px;padding:16px 20px;">
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="{tok['accent']}"
-                       stroke-width="1.8" style="flex-shrink:0">
-                    {icon_path}
-                  </svg>
-                  <span style="font-size:14px;">Coppock 估波指標目前處於{zone_text}</span>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.warning("資料長度不足以計算 Coppock 指標（需至少24個月以上資料）。")
+            col1.markdown(_stat_card("目前趨勢", trend_text, trend_color), unsafe_allow_html=True)
+            col2.markdown(_stat_card("收盤價", f"{last_price:.2f}"), unsafe_allow_html=True)
+            col3.markdown(_stat_card(sar_label, f"{sar_val:.2f}", trend_color), unsafe_allow_html=True)
 
     else:
         st.error(f"找不到股票資料（已嘗試：{', '.join(candidates)}），請檢查代號或日期。")
+
+# 1.收盤價容許區間：
+#     在上升趨勢中，判斷條件改為 c_close > curr_sar * 0.99。即使盤中低價穿過 SAR，只要收盤沒跌破 SAR 的 99%，趨勢就不會反轉，而是重置計算。
+#     在下降趨勢中，則為 c_close < curr_sar * 1.01。
+# 2.重置機制：
+#     當觸發改良邏輯時，程式碼會執行 next_af = af_start（重置加速因子）以及 next_sar = c_low (或 c_high)，這能讓 SAR 點位更緊貼當日的影線。
+# 3.繪圖銜接：
+#     最後兩行將計算出的 SAR 根據 Trend 拆分回 SAR_Long 與 SAR_Short，這樣您後續的 Plotly 繪圖程式碼（紅點與綠點）完全不需要更動即可直接使用。
