@@ -10,10 +10,12 @@ from sklearn.linear_model import LinearRegression
 # 1. 系統環境配置
 # ==============================================================================
 
-st.set_page_config(page_title="David 波段股價對數回歸通道", layout="wide")
+st.set_page_config(page_title="David 乖離率線性回歸", layout="wide")
 
 if "is_dark" not in st.session_state:
     st.session_state.is_dark = False
+if "ma_period" not in st.session_state:
+    st.session_state.ma_period = 260
 
 # ==============================================================================
 # 2. 視覺設計 Tokens（依 Design Handoff「Classical」設計系統規格）
@@ -162,21 +164,49 @@ st.sidebar.markdown(
 
 # 股票代號輸入
 stock_id = st.sidebar.text_input("股票代號(如2330或AAPL)", "2330")
-# 日期範圍選擇：設定資料擷取的起始與結束時間
-start_date = st.sidebar.date_input("起始日期(YYYY/MM/DD)", datetime(2022, 10, 3))
-end_date = st.sidebar.date_input("結束日期(YYYY/MM/DD)", datetime.now())
+
+# 日期選擇
+start_date = st.sidebar.date_input("起始日期", datetime(2019, 1, 1))
+end_date = st.sidebar.date_input("結束日期", datetime.now())
 
 st.sidebar.markdown(
     f"<hr style='border:none;border-top:1px solid {tok['divider']};margin:4px 0;'>",
     unsafe_allow_html=True,
 )
 
-# 視覺主題切換：以按鈕切換整頁亮/深色（對應網頁背景）
+# 移動平均線週期選擇：以按鈕切換 100 / 260 日
+st.sidebar.markdown(
+    f"<div style='font-size:12px;color:{tok['text_muted']};margin-bottom:-6px;'>移動平均線週期</div>",
+    unsafe_allow_html=True,
+)
+ma_col1, ma_col2 = st.sidebar.columns(2)
+ma100_clicked = ma_col1.button(
+    "100 日", type=("primary" if st.session_state.ma_period == 100 else "secondary"),
+    use_container_width=True,
+)
+ma260_clicked = ma_col2.button(
+    "260 日", type=("primary" if st.session_state.ma_period == 260 else "secondary"),
+    use_container_width=True,
+)
+if ma100_clicked:
+    st.session_state.ma_period = 100
+    st.rerun()
+if ma260_clicked:
+    st.session_state.ma_period = 260
+    st.rerun()
+ma_period = st.session_state.ma_period
+
+st.sidebar.markdown(
+    f"<hr style='border:none;border-top:1px solid {tok['divider']};margin:4px 0;'>",
+    unsafe_allow_html=True,
+)
+
+# 圖表主題切換：以按鈕切換整頁亮/深色（對應網頁背景）
 theme_label = "切換為深色" if not is_dark else "切換為亮色"
 theme_icon = ":material/dark_mode:" if not is_dark else ":material/light_mode:"
 theme_clicked = st.sidebar.button(theme_label, icon=theme_icon, type="secondary", use_container_width=True)
 
-# 開始計算觸發按鈕
+# 定義開始計算按鈕
 calculate_btn = st.sidebar.button("開始計算", type="primary", use_container_width=True)
 
 if theme_clicked:
@@ -192,154 +222,179 @@ st.markdown(f"""
       <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="{tok['accent']}" stroke-width="1.6">
         <path d="M3 17l5-6 4 3 6-9"/><path d="M14 5h5v5"/>
       </svg>
-      <h1 style="margin:0;font-size:36px;">David 波段股價對數回歸通道</h1>
+      <h1 style="margin:0;font-size:36px;">David 乖離率線性回歸</h1>
     </div>
     """, unsafe_allow_html=True)
 
-# 判斷邏輯：如果按鈕「還沒被按下」
 if not calculate_btn:
+    # 初始提示訊息
     st.markdown(
         f"<div style='color:{tok['text_muted']};font-size:15px;margin-top:12px;'>"
         f"請點開左上角選單 [ >> ] 在左側面板設定參數後，按「開始計算」即可產出圖表</div>",
         unsafe_allow_html=True,
     )
-# 判斷邏輯：按下按鈕後才執行抓取資料的動作
 else:
-    # A. 下載資料（自動依序嘗試原始代號、.TW、.TWO）
+    # 抓取資料：依序嘗試原始代號 → 加 .TW → 加 .TWO
     raw_id = stock_id.strip()
-    candidates = [raw_id, f"{raw_id}.TW", f"{raw_id}.TWO"] if '.' not in raw_id else [raw_id]
-
-    data = pd.DataFrame()
-    search_id = raw_id
+    candidates = [raw_id, f"{raw_id}.TW", f"{raw_id}.TWO"]
     for candidate in candidates:
-        fetched = yf.download(candidate, start=start_date, end=end_date, auto_adjust=True, progress=False)
-        if not fetched.empty:
-            data = fetched
-            search_id = candidate
+        search_id = candidate
+        data = yf.download(search_id, start=start_date, end=end_date, auto_adjust=True)
+        if not data.empty:
             break
 
-    # 顯示最終使用的股票代碼
-    st.markdown(
-        f"<div style='margin-top:4px;font-family:\"Cormorant Garamond\",serif;"
-        f"font-size:19px;color:{tok['text_muted']};'>{search_id}</div>",
-        unsafe_allow_html=True,
-    )
-
     if not data.empty:
-        # B. 資料處理與多層索引處理
-        # 先展平 MultiIndex 欄位 (新版 yfinance 對單一股票也可能回傳 MultiIndex)
+        # 顯示最終使用的股票代碼
+        st.markdown(
+            f"<div style='margin-top:4px;font-family:\"Cormorant Garamond\",serif;"
+            f"font-size:19px;color:{tok['text_muted']};'>{search_id}</div>",
+            unsafe_allow_html=True,
+        )
+
+        # --- 1. 處理 yfinance 可能產生的多層索引 (MultiIndex) ---
+        # 如果欄位是多層的（例如包含 Ticker 名稱），則只取最內層的 Open, High, Low, Close
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
 
-        # 移除重複欄位 (MultiIndex 展平後可能出現)
-        data = data.loc[:, ~data.columns.duplicated()]
-
+        # 重設索引，將 Date 變成一個普通的欄位
         df = data.reset_index()
 
-        # 相容不同版本 yfinance 的日期欄位名稱
-        # 新版 yfinance (0.2.x+) 的索引名稱可能為 'Datetime' 而非 'Date'
+        # --- 相容不同版本 yfinance：reset_index() 後日期欄位可能為 'Date' 或 'Datetime' ---
         if 'Date' not in df.columns:
-            date_col_found = None
-            for col in df.columns:
-                if pd.api.types.is_datetime64_any_dtype(df[col]):
-                    date_col_found = col
-                    break
-            if date_col_found:
-                df = df.rename(columns={date_col_found: 'Date'})
+            if 'Datetime' in df.columns:
+                df = df.rename(columns={'Datetime': 'Date'})
             else:
-                # 最後備援：將第一欄重新命名為 'Date'
-                df = df.rename(columns={df.columns[0]: 'Date'})
+                # 自動偵測 datetime 類型欄位並命名為 'Date'
+                for col in df.columns:
+                    if pd.api.types.is_datetime64_any_dtype(df[col]):
+                        df = df.rename(columns={col: 'Date'})
+                        break
 
-        # 確保 Date 欄位為 datetime 型別
-        df['Date'] = pd.to_datetime(df['Date'])
-
-        # 安全建立收盤價欄位
-        # 新版 yfinance 的 Close 欄位名稱可能帶有大小寫變化
-        close_col = next((c for c in df.columns if c.lower() == 'close'), None)
-        if close_col is None:
-            st.error("找不到收盤價欄位，請檢查代號或日期。")
+        # --- 2. 核心修正：安全地建立運算用的欄位 ---
+        # 直接從 df 中抓取欄位，避免使用 values.flatten() 導致的維度不符
+        try:
+            # 優先嘗試標準名稱
+            df['Close_1D'] = df['Close']
+            df['High_1D'] = df['High']
+            df['Low_1D'] = df['Low']
+            df['Open_1D'] = df['Open']
+        except KeyError:
+            # 如果抓不到 Close 欄位則停止執行並報錯
+            st.error("找不到 'Close' 欄位，可能是資料下載格式不符，請重新嘗試。")
             st.stop()
-        df['Close_1D'] = df[close_col]
 
-        # [核心] 1. 對數化股價：對收盤價取對數
-        df['Log_Close'] = np.log(df['Close_1D'])
-
-        # 格式化日期字串 (用於 X 軸消除缺口)
+        # [新增] 格式化日期字串，用於 X 軸顯示
+        # --- 格式改為 YYYY-MM-DD ---
+        # %Y (四位數年份), %m (兩位數月份), %d (兩位數日期)
         df['Date_Str'] = df['Date'].dt.strftime('%Y-%m-%d')
 
-        # [核心] 2. 線性回歸計算 (針對對數化股價)
+        # --- 3. 開始計算移動平均與乖離率 ---
+        # A. 計算移動平均線 (MA)
+        df['MA'] = df['Close_1D'].rolling(window=ma_period).mean()
+
+        # B. 定義乖離率 (Bias Ratio)
+        # 公式：(收盤價 / MA - 1) * 100
+        df['Bias'] = ((df['Close_1D'] / df['MA']) - 1) * 100
+
+        # --- 關鍵修正：同時處理 NaN 與 Inf (無限大) ---
+        # 1. 將無限大替換為 NaN 2. 刪除所有 NaN
+        df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=['Bias']).reset_index(drop=True)
+
+        # 增加防錯機制：如果過濾後資料太少，則不進行回歸
+        if len(df) < 10:
+            st.error(f"❌ 目前日期範圍內的有效資料太少（少於 10 筆），無法進行 {ma_period} 天回歸分析。請加長起始日期。")
+            st.stop()
+
+        # C. 線性回歸計算 (針對乖離率)
+        # X 為時間索引，Y 為乖離率
         X = np.array(df.index).reshape(-1, 1)
-        Y = df['Log_Close'].values.reshape(-1, 1)
-
-        # 排除 NaN 進行回歸訓練
-        mask = ~np.isnan(Y).flatten()
+        Y = df['Bias'].values.reshape(-1, 1)
         model = LinearRegression()
-        model.fit(X[mask], Y[mask])
+        model.fit(X, Y)
 
-        # 預測對數回歸值 (中心線)
-        df['Log_Reg'] = model.predict(X)
+        # 乖離率回歸值 (Middle Line)
+        df['Bias_Reg'] = model.predict(X)
 
-        # [核心] 3. 計算離差與標準差 (SD)
-        # 離差 = 對數實際股價 - 對數回歸值
-        df['Deviation'] = df['Log_Close'] - df['Log_Reg']
+        # D. 計算離差與標準差 (SD)
+        # 離差 = 實際乖離率 - 回歸值
+        df['Deviation'] = df['Bias'] - df['Bias_Reg']
         sd_val = df['Deviation'].std()
 
-        # [核心] 4. 計算五線譜軌道 (對數空間)
-        df['Log_P2SD'] = df['Log_Reg'] + (2 * sd_val)
-        df['Log_P1SD'] = df['Log_Reg'] + sd_val
-        df['Log_M1SD'] = df['Log_Reg'] - sd_val
-        df['Log_M2SD'] = df['Log_Reg'] - (2 * sd_val)
+        # E. 計算五線譜軌道 (基於乖離率回歸)
+        df['Bias_P2SD'] = df['Bias_Reg'] + (2 * sd_val)  # 極端樂觀 (+2SD)
+        df['Bias_P1SD'] = df['Bias_Reg'] + sd_val        # 樂觀 (+1SD)
+        df['Bias_M1SD'] = df['Bias_Reg'] - sd_val        # 悲觀 (-1SD)
+        df['Bias_M2SD'] = df['Bias_Reg'] - (2 * sd_val)  # 極端悲觀 (-2SD)
 
-        # C. 視覺化繪圖 (Plotly 互動式圖表)
+        # F. 繪圖：使用 Plotly（配色依 Design Handoff tokens）
         fig = go.Figure()
         lines = tok['lines']
 
-        fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Log_Close'], name='對數化股價',
-                                 line=dict(color=lines['close'], width=2)))
+        # 1. 實際乖離率曲線 (主線)
+        fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Bias'], name='實際乖離率',
+                                  line=dict(color=lines['close'], width=2)))
 
-        # 定義各軌道線的顏色與名稱（依 Design Handoff 配色 tokens）
-        band_specs = [
-            ('Log_P2SD', '+2SD 極端樂觀', lines['extreme_bull']),
-            ('Log_P1SD', '+1SD 樂觀', lines['bull']),
-            ('Log_Reg', '回歸中線', lines['trend']),
-            ('Log_M1SD', '-1SD 悲觀', lines['bear']),
-            ('Log_M2SD', '-2SD 極端悲觀', lines['extreme_bear']),
-        ]
+        # 2. 線性回歸線 (中心線)
+        fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Bias_Reg'], name='回歸中線',
+                                  line=dict(color=lines['trend'], width=2)))
 
-        for band, name, color in band_specs:
-            # 回歸中線使用實線，其餘 SD 軌道使用虛線以利區分
-            is_trend = (band == 'Log_Reg')
-            fig.add_trace(go.Scatter(x=df['Date_Str'], y=df[band], name=name,
-                                     line=dict(dash='solid' if is_trend else 'dash',
-                                               color=color, width=2 if is_trend else 1.6)))
+        # 3. 標準差軌道線
+        fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Bias_P2SD'], name='+2SD 極端樂觀',
+                                  line=dict(color=lines['extreme_bull'], width=1.6, dash='dash')))
+        fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Bias_P1SD'], name='+1SD 樂觀',
+                                  line=dict(color=lines['bull'], width=1.6, dash='dash')))
+        fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Bias_M1SD'], name='-1SD 悲觀',
+                                  line=dict(color=lines['bear'], width=1.6, dash='dash')))
+        fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Bias_M2SD'], name='-2SD 極端悲觀',
+                                  line=dict(color=lines['extreme_bear'], width=1.6, dash='dash')))
 
-        # 圖表版面優化
+        # 圖表佈局設定
         fig.update_layout(
-            height=650,
+            height=600,
             template=chart_template,
-            hovermode='x unified',  # 統一滑鼠懸停資訊
+            hovermode="x unified",
             paper_bgcolor=tok['surface_alt'],
             plot_bgcolor=tok['surface_alt'],
-            font=dict(color=tok['text'], family='Lora, serif'),
-            xaxis=dict(type='category', color=tok['text'], tickfont=dict(color=tok['text']),
-                       gridcolor=tok['grid_line'], nticks=10,
-                       zeroline=True, zerolinecolor=tok['grid_line'], zerolinewidth=1),
-            yaxis=dict(color=tok['text'], tickfont=dict(color=tok['text']), gridcolor=tok['grid_line'],
-                       title=dict(text="對數化股價 Log(Price)", font=dict(color=tok['text'])),
-                       zeroline=True, zerolinecolor=tok['grid_line'], zerolinewidth=1),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5,
-                        font=dict(color=tok['text_muted'], family='Lora, serif'))
+            font=dict(color=tok['text'], family='Lora, serif', size=14),
+
+            xaxis=dict(
+                type='category',
+                color=tok['text'],
+                tickfont=dict(color=tok['text'], size=12),
+                title=dict(text="日期", font=dict(color=tok['text'], size=14)),
+                nticks=8,
+                gridcolor=tok['grid_line'],
+                zeroline=True,
+                zerolinecolor=tok['grid_line'],
+                zerolinewidth=1,
+            ),
+
+            yaxis=dict(
+                color=tok['text'],
+                tickfont=dict(color=tok['text'], size=12),
+                title=dict(text="乖離率 (%)", font=dict(color=tok['text'], size=14)),
+                gridcolor=tok['grid_line'],
+                zeroline=True,
+                zerolinecolor=tok['grid_line'],
+                zerolinewidth=1,
+            ),
+
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="center",
+                x=0.5,
+                font=dict(color=tok['text_muted'], family='Lora, serif', size=12),
+            )
         )
 
         with st.container(border=True):
             st.plotly_chart(fig, use_container_width=True)
 
-        # D. 數據摘要與投資評語
+        # G. 顯示最後數據數據摘要
         st.markdown("<h4 style='margin:28px 0 16px;'>最後交易日數據摘要</h4>", unsafe_allow_html=True)
-
         last_row = df.iloc[-1]
-        # 計算目前對數離差落在幾倍標準差位置 ($\sigma$ 值)
-        sigma = last_row['Deviation'] / sd_val
 
         def _stat_card(label, value):
             return f"""
@@ -349,32 +404,11 @@ else:
             </div>
             """
 
-        # 儀表板數值呈現
         col1, col2, col3, col4 = st.columns(4)
-        col1.markdown(_stat_card("原始收盤價", f"{last_row['Close_1D']:.2f}"), unsafe_allow_html=True)
-        col2.markdown(_stat_card("對數化股價", f"{last_row['Log_Close']:.4f}"), unsafe_allow_html=True)
-        col3.markdown(_stat_card("對數回歸值", f"{last_row['Log_Reg']:.4f}"), unsafe_allow_html=True)
-        col4.markdown(_stat_card("對數離差 SD", f"{sigma:.2f} σ"), unsafe_allow_html=True)
+        col1.markdown(_stat_card("最後收盤價", f"{last_row['Close_1D']:.2f}"), unsafe_allow_html=True)
+        col2.markdown(_stat_card("目前乖離率", f"{last_row['Bias']:.2f}%"), unsafe_allow_html=True)
+        col3.markdown(_stat_card("回歸中線值", f"{last_row['Bias_Reg']:.2f}%"), unsafe_allow_html=True)
+        col4.markdown(_stat_card("標準差 (SD)", f"{sd_val:.2f}%"), unsafe_allow_html=True)
 
-        # 根據 $\sigma$ (Sigma) 值給予自動化投資評註
-        if sigma > 2:
-            banner_text = f"目前價格極度高估（高於回歸中線 {sigma:.2f} 個標準差）"
-        elif sigma < -2:
-            banner_text = f"目前價格極度低估（低於回歸中線 {abs(sigma):.2f} 個標準差）"
-        else:
-            banner_text = "目前價格處於合理回歸區間內"
-
-        st.markdown(f"""
-            <div style="display:flex;align-items:center;gap:12px;margin-top:20px;
-                        border:1px solid color-mix(in srgb, {tok['accent']} 40%, transparent);
-                        background:color-mix(in srgb, {tok['accent']} 10%, transparent);
-                        border-radius:4px;padding:16px 20px;">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="{tok['accent']}"
-                   stroke-width="1.8" style="flex-shrink:0">
-                <path d="M9 18h6M10 21h4M12 3a6 6 0 00-3.6 10.8c.5.4.8 1 .8 1.7v.5h5.6v-.5c0-.7.3-1.3.8-1.7A6 6 0 0012 3z"/>
-              </svg>
-              <span style="font-size:14px;">{banner_text}</span>
-            </div>
-            """, unsafe_allow_html=True)
     else:
         st.error(f"找不到股票資料（已嘗試：{', '.join(candidates)}），請檢查代號或日期。")
