@@ -193,7 +193,13 @@ end_date = st.sidebar.date_input("結束日期(YYYY/MM/DD)", datetime.now())
 from datetime import timedelta
 if start_date.weekday() != 0:
     start_date = start_date - timedelta(days=start_date.weekday())
-    st.sidebar.info(f"起始日期已自動調整為當週週一：{start_date}")
+    st.sidebar.markdown(
+        f"<div style='font-size:13px;line-height:1.5;padding:10px 12px;"
+        f"border:1px solid {tok['accent']};border-radius:4px;"
+        f"background-color:color-mix(in srgb, {tok['accent']} 12%, transparent);"
+        f"color:{tok['text']};'>起始日期已自動調整為當週週一：{start_date}</div>",
+        unsafe_allow_html=True,
+    )
 
 st.sidebar.markdown(
     f"<hr style='border:none;border-top:1px solid {tok['divider']};margin:4px 0;'>",
