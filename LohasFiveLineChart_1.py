@@ -86,18 +86,20 @@ st.markdown(f"""
         font-family: 'Lora', serif !important;
     }}
 
-    /* 輸入框 */
-    [data-testid="stSidebar"] input {{
-        color: {tok['text']} !important;
-        background-color: transparent !important;
+    /* 輸入框：邊框只畫在最外層容器，內層元素一律去邊框/去底色，避免雙層邊框與底色不一致 */
+    [data-testid="stSidebar"] div[data-baseweb="input"] {{
         border: 1px solid {tok['divider']} !important;
         border-radius: 4px !important;
-        box-shadow: none !important;
-    }}
-    [data-testid="stSidebar"] div[data-baseweb="input"],
-    [data-testid="stSidebar"] div[data-baseweb="base-input"] {{
         background-color: transparent !important;
         box-shadow: none !important;
+    }}
+    [data-testid="stSidebar"] div[data-baseweb="input"] * {{
+        border: none !important;
+        box-shadow: none !important;
+        background-color: transparent !important;
+    }}
+    [data-testid="stSidebar"] div[data-baseweb="input"] input {{
+        color: {tok['text']} !important;
     }}
 
     /* 按鈕：設計系統一律採 outline 樣式，不使用實心填色 */
@@ -285,8 +287,10 @@ else:
                 paper_bgcolor=tok['surface_alt'],
                 plot_bgcolor=tok['surface_alt'],
                 font=dict(color=tok['text'], family='Lora, serif'),
-                xaxis=dict(color=tok['text'], tickfont=dict(color=tok['text']), gridcolor=tok['grid_line']),
-                yaxis=dict(color=tok['text'], tickfont=dict(color=tok['text']), gridcolor=tok['grid_line']),
+                xaxis=dict(color=tok['text'], tickfont=dict(color=tok['text']), gridcolor=tok['grid_line'],
+                           zeroline=True, zerolinecolor=tok['grid_line'], zerolinewidth=1),
+                yaxis=dict(color=tok['text'], tickfont=dict(color=tok['text']), gridcolor=tok['grid_line'],
+                           zeroline=True, zerolinecolor=tok['grid_line'], zerolinewidth=1),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5,
                             font=dict(color=tok['text_muted'], family='Lora, serif'))
             )
