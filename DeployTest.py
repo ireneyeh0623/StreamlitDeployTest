@@ -9,13 +9,13 @@ from datetime import datetime
 # 1. 系統環境配置
 # ==============================================================================
 
-st.set_page_config(page_title="改良版 SAR 趨勢追蹤系統 (K線版)", layout="wide")
+st.set_page_config(page_title="改良版 SAR 趨勢追蹤系統 (週K線版)", layout="wide")
 
 if "is_dark" not in st.session_state:
     st.session_state.is_dark = False
 
 # ==============================================================================
-# 2. 視覺設計 Tokens（與 LohasFiveLineChart_1.py 共用同一套 Design Handoff 規格）
+# 2. 視覺設計 Tokens（與 StockPlotSARK_1日線.py 共用同一套 Design Handoff 規格）
 # ==============================================================================
 
 LIGHT_TOKENS = {
@@ -186,8 +186,14 @@ st.sidebar.markdown(
 
 # 股票與日期輸入
 stock_id = st.sidebar.text_input("股票代號(如2330或AAPL)", "2330")
-start_date = st.sidebar.date_input("起始日期(YYYY/MM/DD)", datetime(2025, 10, 1))
+start_date = st.sidebar.date_input("起始日期(YYYY/MM/DD)", datetime(2026, 1, 1))
 end_date = st.sidebar.date_input("結束日期(YYYY/MM/DD)", datetime.now())
+
+# 週線模式：自動將起始日期調整為當週週一
+from datetime import timedelta
+if start_date.weekday() != 0:
+    start_date = start_date - timedelta(days=start_date.weekday())
+    st.sidebar.info(f"起始日期已自動調整為當週週一：{start_date}")
 
 st.sidebar.markdown(
     f"<hr style='border:none;border-top:1px solid {tok['divider']};margin:4px 0;'>",
@@ -240,7 +246,7 @@ st.markdown(f"""
       <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="{tok['accent']}" stroke-width="1.6">
         <path d="M3 17l5-6 4 3 6-9"/><path d="M14 5h5v5"/>
       </svg>
-      <h1 style="margin:0;font-size:36px;">改良版 SAR 趨勢追蹤系統 (K線版)</h1>
+      <h1 style="margin:0;font-size:36px;">改良版 SAR 趨勢追蹤系統 (週K線版)</h1>
     </div>
     """, unsafe_allow_html=True)
 
@@ -251,13 +257,15 @@ if not analyze_btn:
         unsafe_allow_html=True,
     )
 else:
-    # 依序嘗試：原始輸入 → 加 .TW → 加 .TWO
-    candidates = [stock_id, f"{stock_id}.TW", f"{stock_id}.TWO"]
+    # 依序嘗試：原始代號 → .TW → .TWO（若使用者已含 . 則僅嘗試原始）
+    candidates = [stock_id] if '.' in stock_id else [stock_id, f"{stock_id}.TW", f"{stock_id}.TWO"]
+
     data = pd.DataFrame()
     search_id = stock_id
     for candidate in candidates:
-        data = yf.download(candidate, start=start_date, end=end_date, auto_adjust=True, progress=False)
-        if not data.empty:
+        temp = yf.download(candidate, start=start_date, end=end_date, interval='1wk', auto_adjust=True)
+        if not temp.empty:
+            data = temp
             search_id = candidate
             break
 
@@ -269,16 +277,30 @@ else:
     )
 
     if not data.empty:
-        # [修正1] yfinance 0.2.x+ 新版本回傳 MultiIndex 欄位，須在 reset_index() 之前先扁平化
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(0)
-
-        # [修正2] yfinance 不同版本日期索引名稱不一致：
-        #   舊版 → 'Date'，新版 → 'Datetime'
-        #   強制統一命名為 'Date'，確保 reset_index() 後欄位名稱固定
-        data.index.name = 'Date'
-
         df = data.copy().reset_index()
+
+        # ★ 強健版：處理各種版本 yfinance 的欄位格式差異
+        # 情況1：真正的 pd.MultiIndex → 取第一層名稱
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        # 情況2：欄位名稱是 tuple（存在 regular Index 中，isinstance 判斷不到）→ 取 tuple[0]
+        elif any(isinstance(c, tuple) for c in df.columns):
+            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+
+        # ★ 強健版：找日期欄位，不限定名稱
+        # 依序嘗試常見命名，最後才用 dtype 搜尋
+        _date_col = next(
+            (c for c in ['Date', 'Datetime', 'date', 'datetime', 'index'] if c in df.columns),
+            None
+        )
+        if _date_col is None:
+            # 以資料型別找第一個 datetime 欄位
+            _date_col = next(
+                (c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])),
+                None
+            )
+        if _date_col and _date_col != 'Date':
+            df.rename(columns={_date_col: 'Date'}, inplace=True)
 
         # 格式化日期(用於 X 軸顯示)：移除 X 軸非交易日空隙的關鍵，先將日期轉為字串
         # 這樣會顯示成：Nov 02 2022
