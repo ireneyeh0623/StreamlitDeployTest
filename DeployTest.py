@@ -4,18 +4,15 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime
-from sklearn.linear_model import LinearRegression
 
 # ==============================================================================
 # 1. 系統環境配置
 # ==============================================================================
 
-st.set_page_config(page_title="David 乖離率線性回歸", layout="wide")
+st.set_page_config(page_title="Coppock 估波指標系統 (月線版)", layout="wide")
 
 if "is_dark" not in st.session_state:
     st.session_state.is_dark = False
-if "ma_period" not in st.session_state:
-    st.session_state.ma_period = 260
 
 # ==============================================================================
 # 2. 視覺設計 Tokens（依 Design Handoff「Classical」設計系統規格）
@@ -30,10 +27,8 @@ LIGHT_TOKENS = {
     "accent": "#b68235",
     "grid_line": "rgba(32,31,29,0.08)",
     "shadow": "0 3px 10px rgba(45,43,43,0.14)",
-    "lines": {
-        "close": "#1a3a6b", "extreme_bull": "#8b1e1e", "bull": "#e2726b",
-        "trend": "#d4a017", "bear": "#7fb88f", "extreme_bear": "#1f5c3d",
-    },
+    "line": "#b68235",
+    "zero_line": "rgba(32,31,29,0.45)",
 }
 DARK_TOKENS = {
     "bg": "#17140f",
@@ -44,10 +39,8 @@ DARK_TOKENS = {
     "accent": "#c99a4e",
     "grid_line": "rgba(243,237,226,0.12)",
     "shadow": "0 12px 32px rgba(0,0,0,0.5)",
-    "lines": {
-        "close": "#5b9bf0", "extreme_bull": "#d0342c", "bull": "#f0918a",
-        "trend": "#e6b325", "bear": "#8fd6a3", "extreme_bear": "#2f9d68",
-    },
+    "line": "#c99a4e",
+    "zero_line": "rgba(243,237,226,0.45)",
 }
 
 is_dark = st.session_state.is_dark
@@ -153,7 +146,7 @@ st.markdown(f"""
     """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 4. 側邊欄：使用者參數輸入區
+# 4. 側邊欄：查詢設定
 # ==============================================================================
 
 st.sidebar.markdown(
@@ -162,52 +155,22 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-# 股票代號輸入
+# 股票與結束日期輸入(起始日期由結束日期自動往前推20年計算，不開放使用者輸入)
 stock_id = st.sidebar.text_input("股票代號(如2330或AAPL)", "2330")
-
-# 日期選擇
-start_date = st.sidebar.date_input("起始日期", datetime(2019, 1, 1))
-end_date = st.sidebar.date_input("結束日期", datetime.now())
+end_date = st.sidebar.date_input("結束日期(YYYY/MM/DD)", datetime.now())
 
 st.sidebar.markdown(
     f"<hr style='border:none;border-top:1px solid {tok['divider']};margin:4px 0;'>",
     unsafe_allow_html=True,
 )
 
-# 移動平均線週期選擇：以按鈕切換 100 / 260 日
-st.sidebar.markdown(
-    f"<div style='font-size:12px;color:{tok['text_muted']};margin-bottom:-6px;'>移動平均線週期</div>",
-    unsafe_allow_html=True,
-)
-ma_col1, ma_col2 = st.sidebar.columns(2)
-ma100_clicked = ma_col1.button(
-    "100 日", type=("primary" if st.session_state.ma_period == 100 else "secondary"),
-    use_container_width=True,
-)
-ma260_clicked = ma_col2.button(
-    "260 日", type=("primary" if st.session_state.ma_period == 260 else "secondary"),
-    use_container_width=True,
-)
-if ma100_clicked:
-    st.session_state.ma_period = 100
-    st.rerun()
-if ma260_clicked:
-    st.session_state.ma_period = 260
-    st.rerun()
-ma_period = st.session_state.ma_period
-
-st.sidebar.markdown(
-    f"<hr style='border:none;border-top:1px solid {tok['divider']};margin:4px 0;'>",
-    unsafe_allow_html=True,
-)
-
-# 圖表主題切換：以按鈕切換整頁亮/深色（對應網頁背景）
+# 視覺主題切換：以按鈕切換整頁亮/深色（對應網頁背景）
 theme_label = "切換為深色" if not is_dark else "切換為亮色"
 theme_icon = ":material/dark_mode:" if not is_dark else ":material/light_mode:"
 theme_clicked = st.sidebar.button(theme_label, icon=theme_icon, type="secondary", use_container_width=True)
 
-# 定義開始計算按鈕
-calculate_btn = st.sidebar.button("開始計算", type="primary", use_container_width=True)
+# 開始計算觸發按鈕
+analyze_btn = st.sidebar.button("開始計算", type="primary", use_container_width=True)
 
 if theme_clicked:
     st.session_state.is_dark = not st.session_state.is_dark
@@ -220,195 +183,174 @@ if theme_clicked:
 st.markdown(f"""
     <div style="display:flex;align-items:center;gap:12px;">
       <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="{tok['accent']}" stroke-width="1.6">
-        <path d="M3 17l5-6 4 3 6-9"/><path d="M14 5h5v5"/>
+        <path d="M3 12h3l3 7 4-14 3 7h5"/>
       </svg>
-      <h1 style="margin:0;font-size:36px;">David 乖離率線性回歸</h1>
+      <h1 style="margin:0;font-size:36px;">Coppock 估波指標系統 (月線版)</h1>
     </div>
     """, unsafe_allow_html=True)
 
-if not calculate_btn:
-    # 初始提示訊息
+if not analyze_btn:
     st.markdown(
         f"<div style='color:{tok['text_muted']};font-size:15px;margin-top:12px;'>"
         f"請點開左上角選單 [ >> ] 在左側面板設定參數後，按「開始計算」即可產出圖表</div>",
         unsafe_allow_html=True,
     )
 else:
-    # 抓取資料：依序嘗試原始代號 → 加 .TW → 加 .TWO
-    raw_id = stock_id.strip()
-    candidates = [raw_id, f"{raw_id}.TW", f"{raw_id}.TWO"]
+    # 資料計算期間：結束日期往前算20年
+    # 若實際資料長度不足20年(例如上市未滿20年)，yfinance 會自動從最早可得資料起算，不需額外處理
+    start_date = (pd.Timestamp(end_date) - pd.DateOffset(years=20)).date()
+
+    # 依序嘗試：原始代號 → .TW → .TWO
+    candidates = [stock_id, f"{stock_id}.TW", f"{stock_id}.TWO"]
+    search_id = None
+    data = pd.DataFrame()
     for candidate in candidates:
-        search_id = candidate
-        data = yf.download(search_id, start=start_date, end=end_date, auto_adjust=True)
-        if not data.empty:
+        temp = yf.download(candidate, start=start_date, end=end_date, auto_adjust=True, interval="1mo")
+        if not temp.empty:
+            search_id = candidate
+            data = temp
             break
 
-    if not data.empty:
-        # 顯示最終使用的股票代碼
+    if search_id:
+        # 顯示股票代碼(左上角)
         st.markdown(
             f"<div style='margin-top:4px;font-family:\"Cormorant Garamond\",serif;"
             f"font-size:19px;color:{tok['text_muted']};'>{search_id}</div>",
             unsafe_allow_html=True,
         )
 
-        # --- 1. 處理 yfinance 可能產生的多層索引 (MultiIndex) ---
-        # 如果欄位是多層的（例如包含 Ticker 名稱），則只取最內層的 Open, High, Low, Close
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(0)
+    if not data.empty:
+        df = data.copy()
 
-        # 重設索引，將 Date 變成一個普通的欄位
-        df = data.reset_index()
+        # ★ 修正：必須先展平 MultiIndex 欄位，再 reset_index()
+        #   yfinance 新版回傳的欄位結構為 MultiIndex，例如 ('Close', '2330.TW')
+        #   若順序顛倒，reset_index() 後 'Date' 欄位無法正常存取
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
 
-        # --- 相容不同版本 yfinance：reset_index() 後日期欄位可能為 'Date' 或 'Datetime' ---
-        if 'Date' not in df.columns:
-            if 'Datetime' in df.columns:
-                df = df.rename(columns={'Datetime': 'Date'})
-            else:
-                # 自動偵測 datetime 類型欄位並命名為 'Date'
-                for col in df.columns:
-                    if pd.api.types.is_datetime64_any_dtype(df[col]):
-                        df = df.rename(columns={col: 'Date'})
-                        break
+        df = df.reset_index()
 
-        # --- 2. 核心修正：安全地建立運算用的欄位 ---
-        # 直接從 df 中抓取欄位，避免使用 values.flatten() 導致的維度不符
-        try:
-            # 優先嘗試標準名稱
-            df['Close_1D'] = df['Close']
-            df['High_1D'] = df['High']
-            df['Low_1D'] = df['Low']
-            df['Open_1D'] = df['Open']
-        except KeyError:
-            # 如果抓不到 Close 欄位則停止執行並報錯
-            st.error("找不到 'Close' 欄位，可能是資料下載格式不符，請重新嘗試。")
-            st.stop()
+        # 相容不同版本 yfinance：月線索引名稱可能為 'Date' 或 'Datetime'
+        if 'Datetime' in df.columns:
+            df = df.rename(columns={'Datetime': 'Date'})
+        elif 'index' in df.columns:
+            df = df.rename(columns={'index': 'Date'})
 
-        # [新增] 格式化日期字串，用於 X 軸顯示
-        # --- 格式改為 YYYY-MM-DD ---
-        # %Y (四位數年份), %m (兩位數月份), %d (兩位數日期)
-        df['Date_Str'] = df['Date'].dt.strftime('%Y-%m-%d')
+        # 格式化日期(用於 X 軸顯示)：移除 X 軸非交易月空隙的關鍵，先將日期轉為字串
+        # 這樣會顯示成：Nov 2022
+        df['Date_Str'] = df['Date'].dt.strftime('%b %Y')
 
-        # --- 3. 開始計算移動平均與乖離率 ---
-        # A. 計算移動平均線 (MA)
-        df['MA'] = df['Close_1D'].rolling(window=ma_period).mean()
+        # 展平收盤價確保計算穩定
+        df['Close_1D'] = df['Close'].values.flatten()
 
-        # B. 定義乖離率 (Bias Ratio)
-        # 公式：(收盤價 / MA - 1) * 100
-        df['Bias'] = ((df['Close_1D'] / df['MA']) - 1) * 100
+        # --- Coppock 估波指標計算 ---
+        # Coppock.1 = WMA(10) of (ROC(14) + ROC(11))
+        # ROC(n) = (Close - Close[n個月前]) / Close[n個月前] * 100
+        # WMA(10)：以 1~10 為權重的加權移動平均，最近月權重最大(10)，10個月前權重最小(1)
+        close = df['Close_1D']
+        roc14 = (close - close.shift(14)) / close.shift(14) * 100
+        roc11 = (close - close.shift(11)) / close.shift(11) * 100
+        roc_sum = roc14 + roc11
 
-        # --- 關鍵修正：同時處理 NaN 與 Inf (無限大) ---
-        # 1. 將無限大替換為 NaN 2. 刪除所有 NaN
-        df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=['Bias']).reset_index(drop=True)
+        weights = np.arange(1, 11)
+        df['Coppock'] = roc_sum.rolling(10).apply(lambda x: np.dot(x, weights) / weights.sum(), raw=True)
 
-        # 增加防錯機制：如果過濾後資料太少，則不進行回歸
-        if len(df) < 10:
-            st.error(f"❌ 目前日期範圍內的有效資料太少（少於 10 筆），無法進行 {ma_period} 天回歸分析。請加長起始日期。")
-            st.stop()
-
-        # C. 線性回歸計算 (針對乖離率)
-        # X 為時間索引，Y 為乖離率
-        X = np.array(df.index).reshape(-1, 1)
-        Y = df['Bias'].values.reshape(-1, 1)
-        model = LinearRegression()
-        model.fit(X, Y)
-
-        # 乖離率回歸值 (Middle Line)
-        df['Bias_Reg'] = model.predict(X)
-
-        # D. 計算離差與標準差 (SD)
-        # 離差 = 實際乖離率 - 回歸值
-        df['Deviation'] = df['Bias'] - df['Bias_Reg']
-        sd_val = df['Deviation'].std()
-
-        # E. 計算五線譜軌道 (基於乖離率回歸)
-        df['Bias_P2SD'] = df['Bias_Reg'] + (2 * sd_val)  # 極端樂觀 (+2SD)
-        df['Bias_P1SD'] = df['Bias_Reg'] + sd_val        # 樂觀 (+1SD)
-        df['Bias_M1SD'] = df['Bias_Reg'] - sd_val        # 悲觀 (-1SD)
-        df['Bias_M2SD'] = df['Bias_Reg'] - (2 * sd_val)  # 極端悲觀 (-2SD)
-
-        # F. 繪圖：使用 Plotly（配色依 Design Handoff tokens）
+        # ==============================================================================
+        # 6. 視覺化繪圖 (Plotly 互動式圖表)
+        # ==============================================================================
         fig = go.Figure()
-        lines = tok['lines']
 
-        # 1. 實際乖離率曲線 (主線)
-        fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Bias'], name='實際乖離率',
-                                  line=dict(color=lines['close'], width=2)))
+        # 使用 Date_Str (字串日期) 當 X 軸，避開非交易月空隙
+        fig.add_trace(go.Scatter(
+            x=df['Date_Str'], y=df['Coppock'], name='Coppock',
+            mode='lines', line=dict(color=tok['line'], width=2)
+        ))
 
-        # 2. 線性回歸線 (中心線)
-        fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Bias_Reg'], name='回歸中線',
-                                  line=dict(color=lines['trend'], width=2)))
+        # 零軸參考線：Coppock 慣例以零軸判斷多空轉折
+        # 以灰色虛線加粗呈現，與 Y 軸其他水平格線做出區隔
+        fig.add_hline(y=0, line_dash="dash", line_color=tok['zero_line'], line_width=2.5)
 
-        # 3. 標準差軌道線
-        fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Bias_P2SD'], name='+2SD 極端樂觀',
-                                  line=dict(color=lines['extreme_bull'], width=1.6, dash='dash')))
-        fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Bias_P1SD'], name='+1SD 樂觀',
-                                  line=dict(color=lines['bull'], width=1.6, dash='dash')))
-        fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Bias_M1SD'], name='-1SD 悲觀',
-                                  line=dict(color=lines['bear'], width=1.6, dash='dash')))
-        fig.add_trace(go.Scatter(x=df['Date_Str'], y=df['Bias_M2SD'], name='-2SD 極端悲觀',
-                                  line=dict(color=lines['extreme_bear'], width=1.6, dash='dash')))
-
-        # 圖表佈局設定
         fig.update_layout(
-            height=600,
+            title=dict(text="Coppock", font=dict(family="Cormorant Garamond, serif", color=tok['text'])),
+            height=700,
             template=chart_template,
-            hovermode="x unified",
-            paper_bgcolor=tok['surface_alt'],
-            plot_bgcolor=tok['surface_alt'],
-            font=dict(color=tok['text'], family='Lora, serif', size=14),
-
+            hovermode='x unified',
+            font=dict(color=tok['text'], family='Lora, serif'),
+            # 關鍵：將 xaxis 類型設為 category，配合 Date_Str 使用以忽略非交易月
             xaxis=dict(
+                title="月",
                 type='category',
                 color=tok['text'],
-                tickfont=dict(color=tok['text'], size=12),
-                title=dict(text="日期", font=dict(color=tok['text'], size=14)),
-                nticks=8,
+                tickfont=dict(color=tok['text']),
                 gridcolor=tok['grid_line'],
-                zeroline=True,
-                zerolinecolor=tok['grid_line'],
-                zerolinewidth=1,
+                nticks=8  # 限制顯示的座標標籤數量，避免字體重疊
             ),
-
             yaxis=dict(
+                title="%",
                 color=tok['text'],
-                tickfont=dict(color=tok['text'], size=12),
-                title=dict(text="乖離率 (%)", font=dict(color=tok['text'], size=14)),
+                tickfont=dict(color=tok['text']),
                 gridcolor=tok['grid_line'],
-                zeroline=True,
-                zerolinecolor=tok['grid_line'],
-                zerolinewidth=1,
+                zeroline=False  # 停用預設黑色實線加粗的零軸，改由上方自訂灰色虛線呈現
             ),
-
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
                 y=1.02,
                 xanchor="center",
                 x=0.5,
-                font=dict(color=tok['text_muted'], family='Lora, serif', size=12),
-            )
+                font=dict(color=tok['text_muted'], family='Lora, serif')
+            ),
+            paper_bgcolor=tok['surface_alt'],
+            plot_bgcolor=tok['surface_alt']
         )
 
         with st.container(border=True):
             st.plotly_chart(fig, use_container_width=True)
 
-        # G. 顯示最後數據數據摘要
-        st.markdown("<h4 style='margin:28px 0 16px;'>最後交易日數據摘要</h4>", unsafe_allow_html=True)
-        last_row = df.iloc[-1]
+        # ==============================================================================
+        # 7. 數據摘要指標
+        # ==============================================================================
+        st.markdown("<h4 style='margin:28px 0 16px;'>數據摘要</h4>", unsafe_allow_html=True)
+        valid_df = df.dropna(subset=['Coppock'])
 
-        def _stat_card(label, value):
-            return f"""
-            <div style="border:1px solid {tok['divider']};border-radius:4px;padding:20px 22px;">
-              <div style="font-size:12px;color:{tok['text_muted']};margin-bottom:8px;">{label}</div>
-              <div style="font-family:'Cormorant Garamond',serif;font-size:28px;font-variant-numeric:tabular-nums;">{value}</div>
-            </div>
-            """
+        if not valid_df.empty:
+            last_close = valid_df['Close_1D'].iloc[-1]
+            last_coppock = valid_df['Coppock'].iloc[-1]
+            is_bullish = last_coppock > 0
+            zone_text = "多頭區 (>0)" if is_bullish else "空頭區 (<0)"
 
-        col1, col2, col3, col4 = st.columns(4)
-        col1.markdown(_stat_card("最後收盤價", f"{last_row['Close_1D']:.2f}"), unsafe_allow_html=True)
-        col2.markdown(_stat_card("目前乖離率", f"{last_row['Bias']:.2f}%"), unsafe_allow_html=True)
-        col3.markdown(_stat_card("回歸中線值", f"{last_row['Bias_Reg']:.2f}%"), unsafe_allow_html=True)
-        col4.markdown(_stat_card("標準差 (SD)", f"{sd_val:.2f}%"), unsafe_allow_html=True)
+            def _stat_card(label, value):
+                return f"""
+                <div style="border:1px solid {tok['divider']};border-radius:4px;padding:20px 22px;">
+                  <div style="font-size:12px;color:{tok['text_muted']};margin-bottom:8px;">{label}</div>
+                  <div style="font-family:'Cormorant Garamond',serif;font-size:28px;font-variant-numeric:tabular-nums;">{value}</div>
+                </div>
+                """
+
+            col1, col2, col3 = st.columns(3)
+            col1.markdown(_stat_card("最新收盤價", f"{last_close:.2f}"), unsafe_allow_html=True)
+            col2.markdown(_stat_card("最新 Coppock 數值", f"{last_coppock:.2f}"), unsafe_allow_html=True)
+            col3.markdown(_stat_card("目前狀態", zone_text), unsafe_allow_html=True)
+
+            if is_bullish:
+                icon_path = '<path d="M3 17l5-6 4 3 6-9"/><path d="M14 5h5v5"/>'
+            else:
+                icon_path = '<path d="M3 7l5 6 4-3 6 9"/><path d="M14 19h5v-5"/>'
+
+            st.markdown(f"""
+                <div style="display:flex;align-items:center;gap:12px;margin-top:20px;
+                            border:1px solid color-mix(in srgb, {tok['accent']} 40%, transparent);
+                            background:color-mix(in srgb, {tok['accent']} 10%, transparent);
+                            border-radius:4px;padding:16px 20px;">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="{tok['accent']}"
+                       stroke-width="1.8" style="flex-shrink:0">
+                    {icon_path}
+                  </svg>
+                  <span style="font-size:14px;">Coppock 估波指標目前處於{zone_text}</span>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.warning("資料長度不足以計算 Coppock 指標（需至少24個月以上資料）。")
 
     else:
         st.error(f"找不到股票資料（已嘗試：{', '.join(candidates)}），請檢查代號或日期。")
