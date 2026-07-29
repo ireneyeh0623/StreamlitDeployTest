@@ -10,7 +10,7 @@ from sklearn.linear_model import LinearRegression
 # 1. 系統環境配置
 # ==============================================================================
 
-st.set_page_config(page_title="David 長線股價對數回歸通道", layout="wide")
+st.set_page_config(page_title="David 波段股價對數回歸通道", layout="wide")
 
 if "is_dark" not in st.session_state:
     st.session_state.is_dark = False
@@ -163,7 +163,7 @@ st.sidebar.markdown(
 # 股票代號輸入
 stock_id = st.sidebar.text_input("股票代號(如2330或AAPL)", "2330")
 # 日期範圍選擇：設定資料擷取的起始與結束時間
-start_date = st.sidebar.date_input("起始日期(YYYY/MM/DD)", datetime(2015, 8, 1))
+start_date = st.sidebar.date_input("起始日期(YYYY/MM/DD)", datetime(2022, 10, 3))
 end_date = st.sidebar.date_input("結束日期(YYYY/MM/DD)", datetime.now())
 
 st.sidebar.markdown(
@@ -192,7 +192,7 @@ st.markdown(f"""
       <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="{tok['accent']}" stroke-width="1.6">
         <path d="M3 17l5-6 4 3 6-9"/><path d="M14 5h5v5"/>
       </svg>
-      <h1 style="margin:0;font-size:36px;">David 長線股價對數回歸通道</h1>
+      <h1 style="margin:0;font-size:36px;">David 波段股價對數回歸通道</h1>
     </div>
     """, unsafe_allow_html=True)
 
