@@ -44,6 +44,8 @@ DARK_TOKENS = {
 is_dark = st.session_state.is_dark
 tok = DARK_TOKENS if is_dark else LIGHT_TOKENS
 chart_template = "plotly_dark" if is_dark else "plotly_white"
+# 亮色版 +/- 步進按鈕預設顏色改為白色（僅預設狀態，hover 顏色不變）；深色版維持原本設定
+step_btn_color = "#FFFFFF" if not is_dark else tok['text']
 
 # ==============================================================================
 # 3. 全域樣式（字型／配色／按鈕／輸入框／側邊欄版面）
@@ -105,13 +107,13 @@ st.markdown(f"""
     [data-testid="stSidebar"] [data-testid="stNumberInputStepDown"] {{
         border-color: {tok['divider']} !important;
         background-color: transparent !important;
-        color: {tok['text']} !important;
+        color: {step_btn_color} !important;
         opacity: 1 !important;
     }}
     [data-testid="stSidebar"] [data-testid="stNumberInputStepUp"] svg,
     [data-testid="stSidebar"] [data-testid="stNumberInputStepDown"] svg {{
-        fill: {tok['text']} !important;
-        stroke: {tok['text']} !important;
+        fill: {step_btn_color} !important;
+        stroke: {step_btn_color} !important;
         opacity: 1 !important;
     }}
     [data-testid="stSidebar"] [data-testid="stNumberInputStepUp"]:hover,
