@@ -102,6 +102,17 @@ st.markdown(f"""
         color: {tok['text']} !important;
     }}
 
+    /* 瀏覽器自動填入(autofill)會強制套用自己的底色，一般CSS蓋不掉，需用此專門技巧解除 */
+    [data-testid="stSidebar"] input:-webkit-autofill,
+    [data-testid="stSidebar"] input:-webkit-autofill:hover,
+    [data-testid="stSidebar"] input:-webkit-autofill:focus,
+    [data-testid="stSidebar"] input:-webkit-autofill:active {{
+        -webkit-box-shadow: 0 0 0 1000px transparent inset !important;
+        -webkit-text-fill-color: {tok['text']} !important;
+        caret-color: {tok['text']};
+        transition: background-color 9999s ease-in-out 0s;
+    }}
+
     /* 按鈕：設計系統一律採 outline 樣式，不使用實心填色 */
     div.stButton > button {{
         width: 100%;
